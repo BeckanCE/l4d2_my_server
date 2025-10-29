@@ -1,0 +1,12 @@
+"Phrases"
+{
+    "Current Map"
+    {
+        "en"        "Map"
+        "es"        "Mapa"
+        "fr"        "Carte"
+        "de"        "Karte"
+        "ru"        "карта"
+        "pt"        "Mapa"
+    }
+}
