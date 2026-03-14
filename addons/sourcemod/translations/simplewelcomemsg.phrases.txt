@@ -5,20 +5,20 @@
 	"WelcomeMsg1"
 	{
 		"#format"	"{1:N}"
-		"en"		"¡Bienvenid@ {blue}{1}!"
-		"pl"		"¡Bienvenid@ {blue}{1}!"
+		"en"		"¡Bienvenid@ {green}{1}!"
+		"pl"		"¡Bienvenid@ {green}{1}!"
 	}
 	
 	"WelcomeMsg2"
 	{
-		"en"		"{green}-> {default}Juega un mapa custom con {lightgreen}!votedlc. {default}Mira los mapas disponibles en {olive}bit.ly/l4d2maps"
-		"pl"		"{green}-> {default}Juega un mapa custom con {lightgreen}!votedlc. {default}Mira los mapas disponibles en {olive}bit.ly/l4d2maps"
+		"en"		"{green}-> {default}Juega un mapa custom con {red}!votedlc. {default}Mira los mapas disponibles en {olive}bit.ly/l4d2maps"
+		"pl"		"{green}-> {default}Juega un mapa custom con {red}!votedlc. {default}Mira los mapas disponibles en {olive}bit.ly/l4d2maps"
 	}
 	
 	"WelcomeMsg3"
 	{
-		"en"		"{green}-> {default}Juega un mapa custom con {lightgreen}!votedlc. {default}Mira los mapas disponibles en {olive}bit.ly/l4d2maps"
-		"pl"		"{green}-> {default}Juega un mapa custom con {lightgreen}!votedlc. {default}Mira los mapas disponibles en {olive}bit.ly/l4d2maps"
+		"en"		"{green}-> {default}Juega un mapa custom con {red}!votedlc. {default}Mira los mapas disponibles en {olive}bit.ly/l4d2maps"
+		"pl"		"{green}-> {default}Juega un mapa custom con {red}!votedlc. {default}Mira los mapas disponibles en {olive}bit.ly/l4d2maps"
 	}
 	
 	"WelcomeMsg4"
