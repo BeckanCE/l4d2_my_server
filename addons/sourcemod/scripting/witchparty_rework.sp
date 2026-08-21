@@ -9,6 +9,7 @@
 #undef REQUIRE_PLUGIN
 #include <readyup>
 #include <l4d2_penalty_bonus>
+#include <l4d2_player_skills>
 #include <l4d2_skill_detect>
 #define REQUIRE_PLUGIN
 
@@ -19,9 +20,32 @@
 #define DEBUG 			0
 #define PATCH_DEBUG		"logs/wpRework.log"
 
-#define PLUGIN_VERSION	"2.4"
+#define LIBRARY_LEFT4DHOOKS "left4dhooks"
+#define LIBRARY_READYUP "readyup"
+#define LIBRARY_L4D2_PENALTY_BONUS "l4d2_penalty_bonus"
+#define LIBRARY_L4D2_SKILL_DETECT "l4d2_skill_detect"
 #define Position_rhand	1
 #define Position_lhand	2
+
+enum struct WitchPartyRuntimeState
+{
+	bool isLate;
+	bool hasLeft4DHooks;
+	bool hasReadyUp;
+	bool hasPenaltyBonus;
+	bool hasPlayerSkills;
+	bool hasSkillDetect;
+
+	void Reset()
+	{
+		this.isLate = false;
+		this.hasLeft4DHooks = false;
+		this.hasReadyUp = false;
+		this.hasPenaltyBonus = false;
+		this.hasPlayerSkills = false;
+		this.hasSkillDetect = false;
+	}
+}
 
 ConVar
 	g_cvarBonus,
@@ -56,6 +80,8 @@ bool
 	g_bMeleeViewOn[MAXPLAYERS + 1],
 	g_bSpawnWitchBride = false;
 
+WitchPartyRuntimeState g_Runtime;
+
 #if DEBUG
 char g_sLogPath[PLATFORM_MAX_PATH];
 #endif
@@ -68,8 +94,15 @@ public Plugin myinfo =
 	name		= "WirchParty Rework",
 	author		= "Lechuga",
 	description = "Essential features for witchparty",
-	version		= PLUGIN_VERSION,
+	version		= "2.4",
 	url			= "https://github.com/AoC-Gamers/WitchParty-Rework"
+}
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+{
+	g_Runtime.Reset();
+	g_Runtime.isLate = late;
+	return APLRes_Success;
 }
 
 /*****************************************************************
@@ -112,6 +145,8 @@ public void OnPluginStart()
 
 	HookEvent("witch_spawn", Event_WitchSpawn);
 	HookEvent("witch_killed", Event_Witchkilled, EventHookMode_Pre);
+	HookEvent("round_start", Event_RoundStart, EventHookMode_PostNoCopy);
+	HookEvent("round_end", Event_RoundEnd, EventHookMode_PostNoCopy);
 	HookEvent("player_incapacitated", Event_Incapacitated, EventHookMode_Post);
 	HookEvent("player_death", Event_PlayerDeath); 
 
@@ -122,12 +157,83 @@ public void OnPluginStart()
 	RegAdminCmd("sm_spawnwitch", Cmd_SpawnWitch, ADMFLAG_GENERIC, "Respawn Witch");
 	RegAdminCmd("sm_killwitch", Cmd_killWitch, ADMFLAG_GENERIC, "Kill All Witch");
 	RegConsoleCmd("sm_showmelee", Cmd_ShowMelee, "Show/Hide melee witch for tank"); 
+
+	if (g_Runtime.isLate)
+		Runtime_RefreshLibraries();
+}
+
+public void OnAllPluginsLoaded()
+{
+	Runtime_RefreshLibraries();
+}
+
+public void OnLibraryAdded(const char[] name)
+{
+	if (strcmp(name, LIBRARY_LEFT4DHOOKS) == 0)
+	{
+		g_Runtime.hasLeft4DHooks = true;
+		return;
+	}
+
+	if (strcmp(name, LIBRARY_READYUP) == 0)
+	{
+		g_Runtime.hasReadyUp = true;
+		return;
+	}
+
+	if (strcmp(name, LIBRARY_L4D2_PENALTY_BONUS) == 0)
+	{
+		g_Runtime.hasPenaltyBonus = true;
+		return;
+	}
+
+	if (strcmp(name, LIBRARY_L4D2_PLAYER_SKILLS) == 0)
+	{
+		g_Runtime.hasPlayerSkills = true;
+		return;
+	}
+
+	if (strcmp(name, LIBRARY_L4D2_SKILL_DETECT) == 0)
+	{
+		g_Runtime.hasSkillDetect = true;
+	}
+}
+
+public void OnLibraryRemoved(const char[] name)
+{
+	if (strcmp(name, LIBRARY_LEFT4DHOOKS) == 0)
+	{
+		g_Runtime.hasLeft4DHooks = false;
+		return;
+	}
+
+	if (strcmp(name, LIBRARY_READYUP) == 0)
+	{
+		g_Runtime.hasReadyUp = false;
+		return;
+	}
+
+	if (strcmp(name, LIBRARY_L4D2_PENALTY_BONUS) == 0)
+	{
+		g_Runtime.hasPenaltyBonus = false;
+		return;
+	}
+
+	if (strcmp(name, LIBRARY_L4D2_PLAYER_SKILLS) == 0)
+	{
+		g_Runtime.hasPlayerSkills = false;
+		return;
+	}
+
+	if (strcmp(name, LIBRARY_L4D2_SKILL_DETECT) == 0)
+	{
+		g_Runtime.hasSkillDetect = false;
+	}
 }
 
 void OnConVarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	deletetimer(g_hSpawnTimer);
-	g_hSpawnTimer = CreateTimer(convar.FloatValue, Timer_Spawned, _, TIMER_REPEAT);
+	RestartSpawnTimer();
 }
 
 Action Cmd_SpawnWitch(int iClient, int iArgs)
@@ -153,7 +259,7 @@ public Action Cmd_ShowMelee(int client, int args)
 
 public void OnMapEnd()
 {
-	deletetimer(g_hSpawnTimer);
+	StopSpawnTimer();
 }
 
 /*****************************************************************
@@ -162,30 +268,64 @@ public void OnMapEnd()
 
 public void OnWitchCrown(int survivor, int damage)
 {
-	if (g_cvarBonus.IntValue > 0)
-		PBONUS_AddRoundBonus(g_cvarBonus.IntValue, !g_cvarPrintBonus.BoolValue);
-
-	if (L4D_IsPlayerIncapacitated(survivor))
+	if (!g_Runtime.hasSkillDetect || g_Runtime.hasPlayerSkills)
 		return;
 
-	if (g_cvarAdrenalineEffect.IntValue)
-		L4D2_UseAdrenaline(survivor, g_cvarAdrenalineEffect.FloatValue, false, false);
-
-	IncreaseHealth(survivor);
+	HandleWitchCrownReward(survivor, damage, 0);
 }
 
 public void OnWitchCrownHurt(int survivor, int damage, int chipdamage)
 {
-	if (g_cvarBonus.IntValue > 0)
-		PBONUS_AddRoundBonus(g_cvarBonus.IntValue, !g_cvarPrintBonus.BoolValue);
-
-	if (L4D_IsPlayerIncapacitated(survivor))
+	if (!g_Runtime.hasSkillDetect || g_Runtime.hasPlayerSkills)
 		return;
 
-	if (g_cvarAdrenalineEffect.IntValue)
-		L4D2_UseAdrenaline(survivor, g_cvarAdrenalineEffect.FloatValue, false, false);
+	HandleWitchCrownReward(survivor, damage, chipdamage);
+}
 
-	IncreaseHealth(survivor);
+public Action PlayerSkills_OnBossEventDetected(int eventId, L4D2ApiBossEventType type)
+{
+	if (!g_Runtime.hasPlayerSkills || type != L4D2ApiBossEvent_WitchCrown)
+		return Plugin_Continue;
+
+	Handle kv = CreateKeyValues("root");
+	if (kv == INVALID_HANDLE)
+		return Plugin_Continue;
+
+	if (!PlayerSkills_FillBossEventKeyValues(eventId, kv))
+	{
+		delete kv;
+		return Plugin_Continue;
+	}
+
+	KvRewind(kv);
+	if (!KvJumpToKey(kv, "boss_event"))
+	{
+		delete kv;
+		return Plugin_Continue;
+	}
+
+	int survivor = GetClientOfUserId(KvGetNum(kv, "actor_userid"));
+	int damage = 0;
+	int chipdamage = 0;
+	int assistsCount = KvGetNum(kv, "assists_count");
+
+	if (KvJumpToKey(kv, "properties"))
+	{
+		damage = KvGetNum(kv, "actor_damage");
+		chipdamage = KvGetNum(kv, "chip_damage");
+		KvGoBack(kv);
+	}
+
+	KvGoBack(kv);
+	delete kv;
+
+	if (chipdamage <= 0 && assistsCount > 0)
+	{
+		chipdamage = 1;
+	}
+
+	HandleWitchCrownReward(survivor, damage, chipdamage);
+	return Plugin_Continue;
 }
 
 /****************************************************************
@@ -195,8 +335,10 @@ public void OnWitchCrownHurt(int survivor, int damage, int chipdamage)
 // Readyup
 public void OnRoundIsLive()
 {
-	deletetimer(g_hSpawnTimer);
-	g_hSpawnTimer = CreateTimer(g_cvarSpawnTime.FloatValue, Timer_Spawned, _, TIMER_REPEAT);
+	if (!g_Runtime.hasReadyUp)
+		return;
+
+	RestartSpawnTimer();
 }
 
 Action Timer_Spawned(Handle timer)
@@ -219,6 +361,22 @@ Action Timer_Spawned(Handle timer)
 	LogDebug("Attempting to spawn %d/%d witches", iCountAliveWitches + 1, g_cvarSpawnLimit.IntValue);
 
 	return Plugin_Continue;
+}
+
+public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
+{
+	if (g_Runtime.hasReadyUp)
+		return;
+
+	RestartSpawnTimer();
+}
+
+public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
+{
+	if (g_Runtime.hasReadyUp)
+		return;
+
+	StopSpawnTimer();
 }
 
 // Events
@@ -313,7 +471,7 @@ public void Event_BotPlayerReplace(Event event, const char[] name, bool dontBroa
 // left4dhoocks
 public void L4D2_OnEndVersusModeRound_Post()
 {
-	deletetimer(g_hSpawnTimer);
+	StopSpawnTimer();
 
 	if(g_cvarTankMelee.BoolValue)
 		ResetAllState();
@@ -345,6 +503,46 @@ public void L4D_OnWitchSetHarasser(int witch, int victim)
 /*****************************************************************
 			P L U G I N   F U N C T I O N S
 *****************************************************************/
+
+void Runtime_RefreshLibraries()
+{
+	g_Runtime.hasLeft4DHooks = LibraryExists(LIBRARY_LEFT4DHOOKS);
+	g_Runtime.hasReadyUp = LibraryExists(LIBRARY_READYUP);
+	g_Runtime.hasPenaltyBonus = LibraryExists(LIBRARY_L4D2_PENALTY_BONUS);
+	g_Runtime.hasPlayerSkills = LibraryExists(LIBRARY_L4D2_PLAYER_SKILLS);
+	g_Runtime.hasSkillDetect = LibraryExists(LIBRARY_L4D2_SKILL_DETECT);
+}
+
+void HandleWitchCrownReward(int survivor, int damage, int chipdamage)
+{
+	#pragma unused damage
+	#pragma unused chipdamage
+
+	if (!IsValidClientIndex(survivor) || !IsClientInGame(survivor))
+		return;
+
+	if (g_Runtime.hasPenaltyBonus && g_cvarBonus.IntValue > 0)
+		PBONUS_AddRoundBonus(g_cvarBonus.IntValue, !g_cvarPrintBonus.BoolValue);
+
+	if (L4D_IsPlayerIncapacitated(survivor))
+		return;
+
+	if (g_cvarAdrenalineEffect.IntValue)
+		L4D2_UseAdrenaline(survivor, g_cvarAdrenalineEffect.FloatValue, false, false);
+
+	IncreaseHealth(survivor);
+}
+
+void RestartSpawnTimer()
+{
+	StopSpawnTimer();
+	g_hSpawnTimer = CreateTimer(g_cvarSpawnTime.FloatValue, Timer_Spawned, _, TIMER_REPEAT);
+}
+
+void StopSpawnTimer()
+{
+	deletetimer(g_hSpawnTimer);
+}
 
 bool deletetimer(Handle &hTimer)
 {
